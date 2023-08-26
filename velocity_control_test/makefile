@@ -1,9 +1,8 @@
 
-
 all: upload 
 
 upload:
-	@pio run -e waveshare_16kb --target upload
+	@pio run -e genericSTM32F405RG --target upload
 
 compile:
 	@pio run 
@@ -11,7 +10,7 @@ compile:
 clean: 
 	@pio run -t clean
 
-monitor: 
+monitor:
 	@pio device monitor -b 115200
 
 
