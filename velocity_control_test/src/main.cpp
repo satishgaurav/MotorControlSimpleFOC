@@ -2,7 +2,7 @@
     Odrive robotics' hardware is one of the best  BLDC motor foc supporting hardware out there.
 
     This is an example code that can be directly uploaded to the Odrive using the SWD programmer.
-    This code uses an encoder with 500 cpr and a BLDC motor with 7 pole pairs connected to the M0 interface of the Odrive.
+    This code uses an encoder with 8192 cpr and a BLDC motor with 12 pole pairs connected to the M0 interface of the Odrive.
 
     This is a short template code and the idea is that you are able to adapt to your needs not to be a complete solution. :D
 */
@@ -47,20 +47,19 @@
 #define SPI3_MOSO PC12
 
 // Motor instance
-BLDCMotor motor = BLDCMotor(7);
+BLDCMotor motor = BLDCMotor(12);
 BLDCDriver6PWM driver = BLDCDriver6PWM(M0_INH_A, M0_INL_A, M0_INH_B, M0_INL_B, M0_INH_C, M0_INL_C, EN_GATE);
 
 // instantiate the commander
 Commander command = Commander(Serial);
 void doMotor(char *cmd) { command.motor(&motor, cmd); }
 
-// low side current sensing define
-// 0.0005 Ohm resistor
-// gain of 10x
-// current sensing on B and C phases, phase A not connected
-LowsideCurrentSense current_sense = LowsideCurrentSense(0.0005f, 10.0f, _NC, M0_IB, M0_IC);
+Encoder encoder = Encoder(M0_ENC_A, M0_ENC_B, 8192, M0_ENC_Z);
 
-Encoder encoder = Encoder(M0_ENC_A, M0_ENC_B, 500, M0_ENC_Z);
+// velocity set point variable
+float target_velocity = 2;
+void onTarget(char *cmd) { command.scalar(&target_velocity, cmd); }
+
 // Interrupt routine intialisation
 // channel A and B callbacks
 void doA() { encoder.handleA(); }
@@ -73,9 +72,8 @@ void setup()
   // pwm frequency to be used [Hz]
   driver.pwm_frequency = 20000;
   // power supply voltage [V]
-  driver.voltage_power_supply = 20;
-  // Max DC voltage allowed - default voltage_power_supply
-  driver.voltage_limit = 20;
+  driver.voltage_power_supply = 21;
+
   // driver init
   driver.init();
   // link the motor and the driver
@@ -87,14 +85,23 @@ void setup()
   // link the motor to the sensor
   motor.linkSensor(&encoder);
 
-  // control loop type and torque mode
-  motor.torque_controller = TorqueControlType::voltage;
-  motor.controller = MotionControlType::torque;
+  // set control loop type to be used
+  motor.controller = MotionControlType::velocity;
 
-  // max voltage  allowed for motion control
-  motor.voltage_limit = 8.0;
-  // alignment voltage limit
-  motor.voltage_sensor_align = 0.5;
+  // velocity PI controller parameters
+  // default P=0.5 I = 10
+  motor.PID_velocity.P = 0.2;
+  motor.PID_velocity.I = 20;
+  // default voltage_power_supply
+  motor.voltage_limit = 6;
+
+  // velocity low pass filtering
+  // default 5ms - try different values to see what is the best.
+  // the lower the less filtered
+  motor.LPF_velocity.Tf = 0.01;
+
+  // link the motor to the sensor
+  motor.linkSensor(&encoder);
 
   Serial.begin(115200);
   // comment out if not needed
@@ -104,16 +111,11 @@ void setup()
 
   // add target command T
   command.add('M', doMotor, "motor M0");
+  // add target command T
+  command.add('T', onTarget, "target velocity");
 
   // initialise motor
   motor.init();
-
-  // link the driver
-  current_sense.linkDriver(&driver);
-  // init the current sense
-  current_sense.init();
-  current_sense.skip_align = true;
-  motor.linkCurrentSense(&current_sense);
 
   // init FOC
   motor.initFOC();
@@ -126,7 +128,7 @@ void loop()
   // foc loop
   motor.loopFOC();
   // motion control
-  motor.move();
+  motor.move(target_velocity);
   // monitoring
   motor.monitor();
   // user communication
